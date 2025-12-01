@@ -1,6 +1,13 @@
 First of all set all the variables needed for the app to work.
 I have mentioned them all in .env 
 
+
+
+Deployed Link-https://airtable-connected-dynamic-form-bui-iota.vercel.app
+
+Backend url -https://airtable-connected-dynamic-form-builder-1.onrender.com
+
+
 Then run backend 
 npm run dev
  then frontend 

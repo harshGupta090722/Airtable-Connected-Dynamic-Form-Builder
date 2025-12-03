@@ -1,6 +1,5 @@
 
-```markdown
-# Airtable-Connected Dynamic Form Builder 🧩
+Airtable-Connected Dynamic Form Builder 🧩
 
 *A Full-Stack Dynamic Form Creation Platform with Airtable OAuth Integration*
 
@@ -10,8 +9,6 @@ Designed for teams, creators, and automation lovers who want to build forms powe
 
 ---
 
-
----
 
 ## 🔗 Live Demo
  
@@ -99,8 +96,7 @@ Airtable-Connected-Dynamic-Form-Builder/
 │   ├── package.json
 │
 ├── frontend/
-│   ├── public/
-│   │   └── images/                     # README screenshots
+│   ├── public/                         # README screenshots
 │   ├── src/
 │   │   ├── api/                        # Axios API wrappers
 │   │   ├── components/                 # Reusable UI components
@@ -152,7 +148,7 @@ VITE_API_URL=
 VITE_AIRTABLE_CLIENT_ID=
 VITE_AIRTABLE_REDIRECT_URL=
 
-````
+```
 
 *All left blank intentionally — users configure their own values.*
 
@@ -226,26 +222,51 @@ AIRTABLE_REDIRECT_URI=
 9. User views all responses inside Airtable and dashboard
 
 ---
+## 📸 Screenshots
 
-# 📸 Screenshots
+### 🚀 Landing & Authentication
 
-> Add your screenshots inside:
-> `./frontend/public/images/`
+- **Landing Page**
+  
+  ![Landing Page](./frontend/public/loginPage.png)
 
-Example usage:
+- **Sign In With Airtable**
+  
+  ![Sign In With Airtable](./frontend/public/SignInWithAirtable.png)
 
-```markdown
-![Landing Page](./frontend/public/loginPage.png)
-![SignIn With Airtable](./frontend/public/SignInWithAirtable.png)
-![OAuth Login](./frontend/public/GrantAccess.png)
-![Dashboard](./frontend/public/Dashboard.png)
-![Select Table and Bases](./frontend/public/CreateNewForm.png)
-![Form Builder](./frontend/public/FormBuilder.png)
-![Conditional Logic](./frontend/public/ConditionalLogic2.png)
-![Airtable Updated](./frontend/public/AirtableApp.png)
-```
+- **Grant Access (OAuth Login)**
+  
+  ![OAuth Login](./frontend/public/GrantAccess.png)
 
 ---
+
+### 📊 Dashboard & Form Management
+
+- **User Dashboard**
+  
+  ![Dashboard](./frontend/public/Dashboard.png)
+
+- **Create New Form – Select Base & Table**
+  
+  ![Select Base and Table](./frontend/public/CreateNewForm.png)
+
+- **Form Builder**
+  
+  ![Form Builder](./frontend/public/FormBuilder.png)
+
+- **Conditional Logic Configuration**
+  
+  ![Conditional Logic](./frontend/public/ConditionalLogic2.png)
+
+---
+
+### 📥 Submission & Airtable Sync
+
+- **Airtable Updated With Form Response**
+  
+  ![Airtable Updated](./frontend/public/AirtableApp.png)
+
+
 
 # 🧪 API Routes (Quick Overview)
 

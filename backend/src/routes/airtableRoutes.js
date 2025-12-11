@@ -1,12 +1,13 @@
 import express from "express";
 import { auth } from "../middleware/auth.js";
 import User from "../models/user.model.js";
+import Webhook from "../models/webhooks.model.js";
 import {
   getBases,
   getTables,
   getFields,
 } from "../config/airtableClient.js";
-import { createAirtableWebhook } from "../config/airtableClient.js";
+import axios from "axios";
 
 const router = express.Router();
 
@@ -106,23 +107,53 @@ router.get("/fields", auth, async (req, res) => {
 });
 
 
+/* Webhook generation */
+const airtableApi = axios.create({
+  baseURL: `https://api.airtable.com/v0/bases/${process.env.AIRTABLE_BASE_ID}`,
+  headers: {
+    Authorization: `Bearer ${process.env.AIRTABLE_PAT}`,
+    "Content-Type": "application/json",
+  },
+});
+
+async function createAirtableWebhook() {
+  const res = await airtableApi.post("/webhooks", {
+    notificationUrl: process.env.WEBHOOK_PUBLIC_URL,
+    specification: {
+      options: {
+        filters: {
+          dataTypes: ["tableData"],
+          recordChangeScope: process.env.AIRTABLE_TABLE_ID || "tbl8OtUDLZItyAYdU",
+        },
+      },
+    },
+  });
+
+  return res.data;
+}
+
 router.post("/webhooks/create", async (req, res) => {
-   console.log("hitting the route correctly !")
+  console.log("➡️ Hitting /webhooks/create");
+
   try {
     const data = await createAirtableWebhook();
+    console.log("✅ Webhook created by Airtable:", data);
 
-    console.log("Webhook created:", data);
+    const savedDoc = await Webhook.upsertFromCreateResponse(data, {
+      notificationUrl: process.env.WEBHOOK_PUBLIC_URL,
+    });
 
     return res.status(201).json({
       webhookId: data.id,
       macSecretBase64: data.macSecretBase64,
       expirationTime: data.expirationTime,
+      savedInDb: true,
+      dbId: savedDoc._id,
     });
   } catch (err) {
-    console.error("Error creating webhook:", err.response?.data || err.message);
+    console.error("❌ Error creating webhook:", err.response?.data || err.message);
     return res.status(500).json({ message: "Failed to create webhook" });
   }
 });
-
 
 export default router;

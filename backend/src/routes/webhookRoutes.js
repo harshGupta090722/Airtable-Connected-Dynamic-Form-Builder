@@ -25,41 +25,39 @@ function safeCompare(a, b) {
 router.post("/airtable", async (req, res) => {
   try {
     console.log("➡️ Airtable ping received");
-
+    
     let webhook = await Webhook.findOne({
       notificationUrl: WEBHOOK_PUBLIC_URL,
       deleted: false,
       isHookEnabled: true,
     })
-      .select("+macSecretBase64")
-      .exec();
-
+    .select("+macSecretBase64")
+    .exec();
+    
     if (!webhook) {
       webhook = await Webhook.findOne({ deleted: false }).select("+macSecretBase64");
     }
-
+    
     if (!webhook) {
       console.warn("⚠️ No webhook record found in DB.");
       return res.sendStatus(200);
     }
-
+    
     const headerMac = req.headers["x-airtable-content-mac"];
     if (headerMac && webhook.macSecretBase64) {
       const macSecret = webhook.getMacSecretBuffer();
       const h = crypto.createHmac("sha256", macSecret);
       h.update(req.body);
       const expected = "hmac-sha256=" + h.digest("hex");
-
+      
       if (!safeCompare(expected, headerMac)) {
         console.warn("⚠️ MAC mismatch");
         return res.sendStatus(200);
       }
     }
-
+    
     res.sendStatus(200);
-
     processPayloads(webhook);
-
   } catch (err) {
     console.error("Webhook route error:", err);
     res.sendStatus(200);
@@ -68,133 +66,137 @@ router.post("/airtable", async (req, res) => {
 
 async function processPayloads(webhook) {
   const url = `${AIRTABLE_API_BASE_URL}/bases/${AIRTABLE_BASE_ID}/webhooks/${webhook.webhookId}/payloads?cursor=${webhook.cursorForNextPayload}`;
-
+  
   let resp;
   try {
-    resp = await axios.get(url, { headers: { Authorization: `Bearer ${AIRTABLE_PAT}` }, timeout: 20000 });
+    resp = await axios.get(url, {
+      headers: { Authorization: `Bearer ${AIRTABLE_PAT}` },
+      timeout: 20000,
+    });
   } catch (err) {
     console.error("Error fetching payloads from Airtable:", err.message || err);
     return;
   }
-
-  console.log("payloads response:", JSON.stringify(resp.data, null, 2));
-
+  
   const { cursor, payloads = [], mightHaveMore = false } = resp.data;
-
+  
   webhook.cursorForNextPayload = cursor ?? webhook.cursorForNextPayload;
   webhook.lastPayloadFetchTime = new Date();
-  try { await webhook.save(); } catch (e) { console.error("Error saving webhook cursor:", e); }
-
+  try {
+    await webhook.save();
+  } catch (e) {
+    console.error("Error saving webhook cursor:", e);
+  }
+  
   if (!payloads.length) {
     console.log("No payloads to process.");
     return;
   }
-
-  let defaultFormId = null;
-  try {
-    const anyForm = await Form?.findOne().select("_id").lean().exec();
-    if (anyForm) defaultFormId = anyForm._id;
-  } catch (e) {
-    console.warn("Could not lookup Form for defaultFormId:", e.message || e);
-  }
-
+  
   for (const payload of payloads) {
-    if (Array.isArray(payload.changedTables) && payload.changedTables.length > 0) {
-      for (const table of payload.changedTables) {
-        const tableId = table.id || null;
-        const records = Array.isArray(table.records) ? table.records : [];
-        for (const rec of records) {
-          await processSingleRecord(rec, tableId, defaultFormId);
-        }
-      }
-    }
-
-    if (payload.changedTablesById && typeof payload.changedTablesById === "object") {
+    if (payload.changedTablesById) {
       for (const [tableId, tableObj] of Object.entries(payload.changedTablesById)) {
-        const changedRecordsById = tableObj.changedRecordsById;
-        if (changedRecordsById && typeof changedRecordsById === "object") {
-          for (const [recId, recObj] of Object.entries(changedRecordsById)) {
-            const current = recObj.current ?? recObj;
-            const normalized = {
-              id: recId,
-              cellValuesByFieldId: (current.cellValuesByFieldId || null),
-              cellValues: (current.cellValues || null),
-              fields: (current.fields || null),
-              deleted: current === null || recObj.deleted === true || recObj.changeType === "deleted" || false,
-            };
-            await processSingleRecord(normalized, tableId, defaultFormId);
-          }
+        const changedRecordsById = tableObj.changedRecordsById || {};
+        for (const [recId, recObj] of Object.entries(changedRecordsById)) {
+          console.log("Harsh RAW RECORD EVENT", {
+            tableId,
+            recordId: recId,
+            recObj,
+          });
+          
+          const current = recObj.current ?? recObj;
+          const normalized = {
+            id: recId,
+            cellValuesByFieldId: current?.cellValuesByFieldId || {},
+            deleted:
+            current === null ||
+            recObj.deleted === true ||
+            recObj.changeType === "deleted",
+          };
+          console.log("🔎 NORMALIZED RECORD", {
+            recordId: normalized.id,
+            deleted: normalized.deleted,
+            cellKeys: Object.keys(normalized.cellValuesByFieldId || {}),
+          });
+          
+          await processSingleRecord(normalized, tableId);
         }
       }
     }
-  } 
-
+  }
+  
   if (mightHaveMore) {
-    console.log("mightHaveMore true — fetching next batch");
     await processPayloads(webhook);
   }
-
+  
   console.log("Payload sync finished.");
 }
 
-
-async function processSingleRecord(rec, tableId, defaultFormId) {
+async function processSingleRecord(rec, tableId) {
   const id = rec.id;
+  
   try {
-    const isDeleted = rec.deleted === true || rec.changeType === "deleted";
-    if (isDeleted) {
-      const upd = await Response.findOneAndUpdate({ airtableRecordId: id }, { $set: { deletedInAirtable: true } }, { new: true }).exec();
+    if (rec.deleted) {
+      const upd = await Response.findOneAndUpdate(
+        { airtableRecordId: id },
+        { $set: { deletedInAirtable: true } },
+        { new: true }
+      );
       console.log(upd ? `Marked deleted: ${id}` : `Delete ping, no Response found: ${id}`);
       return;
     }
-
-    const incoming = rec.cellValuesByFieldId ?? rec.cellValues ?? rec.fields ?? {};
-    if (!incoming || Object.keys(incoming).length === 0) {
-      console.log("No incoming fields for", id);
+    
+    const form = await Form.findOne({ airtableTableId: tableId }).lean();
+    if (!form) {
+      console.warn("No form found for tableId:", tableId);
       return;
     }
-
-    console.log("Record", id, "incoming keys:", Object.keys(incoming));
-
-    let doc = await Response.findOne({ airtableRecordId: id }).exec();
-
-    if (!doc) {
-      if (!defaultFormId) {
-        console.warn("Skipping create for", id, "- no form available and Response.form is required.");
-        return;
+    
+    const fieldIdToQuestionKey = {};
+    form.questions.forEach(q => {
+      fieldIdToQuestionKey[q.airtableFieldId] = q.questionKey;
+    });
+    
+    const translated = {};
+    for (const [fieldId, value] of Object.entries(rec.cellValuesByFieldId || {})) {
+      const questionKey = fieldIdToQuestionKey[fieldId];
+      if (!questionKey) continue;
+      
+      if (value === null || (typeof value === "string" && value.trim() === "")) {
+        continue;
       }
-      try {
-        doc = await Response.create({
-          form: defaultFormId,
-          airtableRecordId: id,
-          answers: incoming,
-          deletedInAirtable: false,
-        });
-        console.log("Created new Response:", id);
-      } catch (createErr) {
-        console.error("Error creating Response for", id, createErr && createErr.message ? createErr.message : createErr);
-        return;
-      }
-    } else {
-      const merged = Object.assign({}, doc.answers || {});
-      for (const [key, val] of Object.entries(incoming)) {
-        if (val === null || (typeof val === "string" && val.trim() === "")) {
-          delete merged[key];
-        } else {
-          merged[key] = val;
-        }
-      }
-      doc.answers = merged;
-      doc.deletedInAirtable = false;
-      try {
-        await doc.save();
-        console.log("Updated Response:", id);
-      } catch (saveErr) {
-        console.error("Error saving Response", id, saveErr && saveErr.message ? saveErr.message : saveErr);
-      }
+      
+      translated[questionKey] = value;
     }
-  } catch (recordErr) {
-    console.error("Error processing record", id, recordErr && recordErr.message ? recordErr.message : recordErr);
+    
+    if (!Object.keys(translated).length) {
+      console.log("No mapped fields for", id);
+      return;
+    }
+    
+    let doc = await Response.findOne({ airtableRecordId: id });
+    
+    if (!doc) {
+      doc = await Response.create({
+        form: form._id,
+        airtableRecordId: id,
+        answers: translated,
+        deletedInAirtable: false,
+      });
+      console.log("Created new Response:", id);
+    } else {
+      doc.answers = { ...(doc.answers || {}), ...translated };
+      
+      Object.keys(doc.answers).forEach(k => {
+        if (k.startsWith("fld")) delete doc.answers[k];
+      });
+      
+      doc.deletedInAirtable = false;
+      await doc.save();
+      console.log("Updated Response:", id);
+    }
+  } catch (err) {
+    console.error("Error processing record", id, err.message || err);
   }
 }
 
